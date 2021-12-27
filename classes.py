@@ -1,5 +1,13 @@
+from typing import List
 import numpy as np
 
+CARD_COLORS = ["heart","club","diamond","spade"]
+CARD_COLORS_ASCII = {"heart":"♥","club":"♣","diamond":"♦","spade":"♠"}
+CARD_VALUES_ASCII = {i:str(i) for i in range(1,14)}
+CARD_VALUES_ASCII[1] = "A"
+CARD_VALUES_ASCII[11] = "J"
+CARD_VALUES_ASCII[12] = "Q"
+CARD_VALUES_ASCII[13] = "K"
 class Card():
     
     def __init__(self,color,value):
@@ -7,33 +15,15 @@ class Card():
         if value < 1 or value > 13:
             print(f"Value {value} out of bounds")
             raise RuntimeError
-        if color not in ["heart","club","diamond","spade"]:
+        if color not in CARD_COLORS:
             print(f"Color {color} not recognized")
             raise RuntimeError
                     
         self.color = color
         self.value = value
         
-        self.disp = ""
-        if self.value == 1:
-            self.disp += "A "
-        elif self.value == 11:
-           self.disp += "J "
-        elif self.value == 12:
-            self.disp += "Q "
-        elif self.value == 13:
-            self.disp += "K "           
-        else:
-            self.disp += str(value)+" "
-        
-        if color == "heart":
-            self.disp += "♥"
-        elif color == "diamond":
-            self.disp += "♦"
-        elif color == "club":
-            self.disp += "♣"   
-        else:
-            self.disp += "♠"               
+        self.disp = CARD_VALUES_ASCII[self.value] + " "       
+        self.disp += CARD_COLORS_ASCII[self.color]
 
     def __str__(self):
         return self.disp
@@ -43,7 +33,7 @@ class Deck():
     def __init__(self):
         
         self.cards = []
-        for color in ["heart","club","diamond","spade"]:
+        for color in CARD_COLORS:
             for i in range(1,14):
                 self.cards.append(Card(color,i))
         
@@ -56,17 +46,17 @@ class Deck():
         
 class Pile():
     
-    def __init__(self,up_cards,down_cards):
+    def __init__(self,up_cards:List[Card],down_cards:List[Card]):
         
         self.up_cards = up_cards
         self.down_cards = down_cards
         
-    def card_in_up_pile(self,color,value):
+    def card_index_in_up_pile(self,color:str,value:int):
         
-        for c in self.up_cards:
+        for i,c in enumerate(self.up_cards):
             if c.color == color and c.value == value:
-                return True
-        return False
+                return i
+        return -1
         
     def flip_card(self):
         
@@ -82,11 +72,11 @@ class Pile():
         
         self.up_cards.append(c)
         
-    def remove_cards(self, index):
+    def remove_cards(self, index:int):
         
-        self.up_cards = self.up_cards[index:]
+        self.up_cards = self.up_cards[:index]
         
-    def add_cards(self, cards):
+    def add_cards(self, cards:List[Card]):
         
         self.up_cards += cards
     
@@ -111,7 +101,7 @@ class Kabal():
             
         self.deck = Deck()
         self.piles = []
-        self.ace_piles = [Pile([],[]),Pile([],[]),Pile([],[]),Pile([],[])]
+        self.ace_piles = {color:Pile([],[]) for color in CARD_COLORS}
         
         k = 0
         for i in range(7):
@@ -141,58 +131,61 @@ class Kabal():
             
         return disp
         
-    def move_cards(self,from_pile,to_pile,index):
+    def move_cards(self,from_pile:Pile,to_pile:Pile,index:int):
                 
         cards_to_move = from_pile.up_cards[index:]
         to_pile.add_cards(cards_to_move)
         from_pile.remove_cards(index)
         
-    def move_king_to_empty_pile(self,from_pile,to_pile,king_card):
+    def move_king_to_empty_pile(self) -> bool:
         
-        if len(to_pile.up_cards)+len(to_pile.down_cards) > 0:
-            print("To-pile not empty!")
-            raise RuntimeError
-        
-        index = -1
-        for i,c in enumerate(from_pile.up_cards):
-            if c == king_card:
-                index = i
-                break
-        
-        if index == -1:
-            print(f"King kard {str(king_card)} not found in pile!")
-            raise RuntimeError
-            
-        self.move_cards(from_pile,to_pile,index)
-        
-    def move_card_to_ace_pile(self, from_pile, card):
-    
-        ap = None
+        empty_piles = [p for p in self.piles if len(p.up_cards)+len(p.down_cards) == 0]
+        if len(empty_piles) == 0:
+            return False
 
-        if card.value == 1:
-            for p in self.ace_piles:
-                if len(p.up_cards) == 0:
-                    ap = p
+        king_index = -1
+        king_pile = None
+        for p in self.piles:
+            for i,c in enumerate(p.up_cards):
+                if c.value == 13:
+                    king_index = i
+                    king_pile = p
                     break
-        else:
-            for p in self.ace_piles:
-                if len(p.up_cards) == 0:
-                    continue
-                c = p.up_cards[-1]
-                if c.color != card.color:
-                    continue
-                    
-                if c.value == card.value-1:
-                    ap = p
-                    break
-                    
-        if ap is None:
-            print(f"Unable to find ace pile for {card}")
-            raise RuntimeError
-            
         
-        ap.up_cards.append(card)
-        from_pile.up_cards.remove(card)    
+        if king_index == -1:
+            return False
+
+        to_pile = empty_piles[0]
+        self.move_cards(king_pile,to_pile,king_index)
+        return True
+
+    def move_cards_to_ace_pile(self) -> int:
+    
+        n_moved = 0
+
+        last_value = {color:0 for color in CARD_COLORS}
+        for color,p in self.ace_piles.items():
+            if len(p.up_cards) > 0:
+                last_value[color] = p.up_cards[-1].value
+
+        new_pass = True
+        while new_pass:
+            
+            new_pass = False
+            for p in self.piles:
+                if len(p.up_cards) == 0:
+                    continue            
+
+                c = p.up_cards[-1]
+                v = last_value[c.color]
+                if c.value == v + 1:
+                    self.move_cards(p,self.ace_piles[c.color],len(p.up_cards)-1)
+                    last_value[c.color] += 1
+                    n_moved += 1
+                    new_pass = True
+
+        return n_moved
+
         
         
         
@@ -214,8 +207,11 @@ class Kabal():
             for i,other_p in enumerate(self.piles):
                 if other_p == p:
                     continue
-                if other_p.card_in_up_pile(c.color,c.value-1):
+                if other_p.card_index_in_up_pile(c.color,c.value-1) != -1:
                     print(f"Found card to move in pile number {i+1}")
                     break
-                    
+        
             print("")
+        
+        n = self.move_cards_to_ace_pile()
+        print(f"Moved {n} cards to ace piles")
