@@ -53,6 +53,10 @@ class Pile():
         
     def card_index_in_up_pile(self,color:str,value:int):
         
+        if value < 1 or value > 13:
+            print("Trying to find card outside legal values:",color,value)
+            raise RuntimeError
+
         for i,c in enumerate(self.up_cards):
             if c.color == color and c.value == value:
                 return i
@@ -102,6 +106,7 @@ class Kabal():
         self.deck = Deck()
         self.piles = []
         self.ace_piles = {color:Pile([],[]) for color in CARD_COLORS}
+        self.latest_ace_pile_value = {color:0 for color in CARD_COLORS}
         
         k = 0
         for i in range(7):
@@ -136,6 +141,10 @@ class Kabal():
         cards_to_move = from_pile.up_cards[index:]
         to_pile.add_cards(cards_to_move)
         from_pile.remove_cards(index)
+
+        if index == 0 and len(from_pile.down_cards) > 0:
+            #print("Flipping card")
+            from_pile.flip_card()        
         
     def move_king_to_empty_pile(self) -> bool:
         
@@ -143,75 +152,98 @@ class Kabal():
         if len(empty_piles) == 0:
             return False
 
-        king_index = -1
-        king_pile = None
+        kings = []
         for p in self.piles:
             for i,c in enumerate(p.up_cards):
                 if c.value == 13:
-                    king_index = i
-                    king_pile = p
-                    break
+                    
+                    if i == 0 and len(p.down_cards) == 0:   #Kings on the bottom of a pile with no hidden cards do not count
+                        continue
+                    
+                    if i == 0:
+                        rank = 0
+                    else:
+                        card_below = p.up_cards[i-1]
+                        if card_below.value == 1:
+                            rank = 1
+                        elif self.latest_ace_pile_value[card_below.color] == card_below.value - 1:
+                            rank = 2
+                        else:
+                            rank = 1000
+
+                    kings.append((rank,i,p))
         
-        if king_index == -1:
+        if len(kings) == 0:
             return False
 
-        to_pile = empty_piles[0]
-        self.move_cards(king_pile,to_pile,king_index)
+        kings.sort(key=lambda x: x[0])
+
+        for rank,index,pile in kings:
+
+            to_pile = empty_piles[0]
+            self.move_cards(pile,to_pile,index)
+            break
+
         return True
 
     def move_cards_to_ace_pile(self) -> int:
-    
-        n_moved = 0
+        
+        n_moved = 1
+        while n_moved > 0:
 
-        last_value = {color:0 for color in CARD_COLORS}
-        for color,p in self.ace_piles.items():
-            if len(p.up_cards) > 0:
-                last_value[color] = p.up_cards[-1].value
+            n_moved = 0
+            for p in self.piles:
+                n_moved += self.move_cards_in_pile_to_ace_pile(p)
+        return n_moved   
+
+    def move_cards_in_pile_to_ace_pile(self, p:Pile) -> int:
+
+        n_moved = 0
 
         new_pass = True
         while new_pass:
             
             new_pass = False
-            for p in self.piles:
-                if len(p.up_cards) == 0:
-                    continue            
+            if len(p.up_cards) == 0:
+                return n_moved            
 
-                c = p.up_cards[-1]
-                v = last_value[c.color]
-                if c.value == v + 1:
-                    self.move_cards(p,self.ace_piles[c.color],len(p.up_cards)-1)
-                    last_value[c.color] += 1
-                    n_moved += 1
-                    new_pass = True
+            c = p.up_cards[-1]
+            v = self.latest_ace_pile_value[c.color]
+            if c.value == v + 1:
+                self.move_cards(p,self.ace_piles[c.color],len(p.up_cards)-1)
+                self.latest_ace_pile_value[c.color] += 1
+                n_moved += 1
+                new_pass = True
 
-        return n_moved
+        return n_moved   
 
-        
-        
-        
-        
-            
-    def test(self):
-        
+
+    def play_round(self):
+
+        self.move_cards_to_ace_pile()
+
+        did_something = False      
+
         for p in self.piles:
             if len(p.up_cards) == 0:
                 continue
             
             c = p.up_cards[-1]
-            print(c)
-            
             if c.value == 1:
-                print("Ace can be moved out")
+                self.move_cards_to_ace_pile()
+                did_something = True 
                 continue
-            
+                        
             for i,other_p in enumerate(self.piles):
                 if other_p == p:
                     continue
-                if other_p.card_index_in_up_pile(c.color,c.value-1) != -1:
-                    print(f"Found card to move in pile number {i+1}")
-                    break
-        
-            print("")
-        
-        n = self.move_cards_to_ace_pile()
-        print(f"Moved {n} cards to ace piles")
+                index = other_p.card_index_in_up_pile(c.color,c.value-1)
+                if index != -1:
+                    #print(f"Found card to move in pile number {i+1}")
+                    self.move_cards(other_p,p,index)
+                    did_something = True                    
+
+        if not did_something:
+            did_something = self.move_king_to_empty_pile()
+
+        return did_something
